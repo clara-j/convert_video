@@ -23,6 +23,36 @@ LogAndEcho () {
 
 }
 
+function CreateDB () {
+
+	sqlite3 test.db  "create table n (ID INTEGER PRIMARY KEY, \
+    	FileName TEXT, \
+    	ReducedSize INTEGER, \
+    	Quality INTEGER, \
+    	Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)"
+
+}
+
+function AddRecord () {
+	# 1 fileName
+	# 2 reducedSize
+	# 3 quality
+	echo "$1  $2  $3"
+	sql="insert into n (FileName,ReducedSize, Quality) values ('$1',$2,$3);"
+	#echo "$sql"
+	sqlite3 test.db  "$sql"
+}
+
+function GetRecord () {
+	# 1 fileName
+        # 2 quality
+	sql="select reducedSize from n where FileName='$1' and Quality=$2 order by Timestamp DESC LIMIT 1;"
+	#echo "$sql"
+	reValue=`sqlite3 test.db  "$sql"`
+	echo $reValue
+}
+
+
 function ShowTime () {
     num=$1
     min=0
@@ -49,6 +79,7 @@ function ShowTime () {
     echo "$day"d "$hour"h "$min"m "$sec"s
 }
 
+CreateDB
 
 EXT="mkv\\|avi\\|mp4\\|mov\\"
 #SRC="/media/Pool2/Temp/Scratch/"
@@ -71,6 +102,7 @@ fi
 if [[ "$2" != "" ]] ; then
         Quality="$2"
 fi
+
 
 
 LogAndEcho "----------Settings----------"
@@ -99,9 +131,12 @@ do
 			LogAndEcho "``"
 			LogAndEcho "----------------------------"
 			LogAndEcho "Starting file: $FILE - `date`"
-		
-		
-		if [ "0" == "$Is265" ] ; then
+
+		LastProcessReduced=`GetRecord "$FILE" $Quality`
+
+		if [ "" != "$LastProcessReduced" ] ; then
+			LogAndEcho "File already processed to: $LastProcessReduced"
+		elif  [ "0" == "$Is265" ] ; then
 			
 			
 			OriginalLength=`avconv -i "$FILE" 2>&1 | grep 'Duration' | awk '{print $2}' | sed s/,//`
@@ -143,11 +178,19 @@ do
 
 			if [[ $NewSizeK -eq 0 ]]; then
 				LogAndEcho "File not created"
+				
+				AddRecord "$FILE" -2  $Quality
+                                push "Convert" "File not created"
+
 			elif [[ "$NewLength" = "$OriginalLength"  ]]; then
-				LogAndEcho "Length Does Not Match"
+				LogAndEcho "Length Does Not Match: $NewLength"
+				AddRecord "$FILE" -1  $Quality
+				push "Convert" "Wrong Length: $NewLength != $OriginalLength"
+
 			elif [[ $NewSizeK -gt $MaxSize ]]; then
 				LogAndEcho "File is larger"
 				#rm "$DEST/$filename.${DEST_EXT}"
+				AddRecord "$FILE" $SizeChange  $Quality
 			else
 				LogAndEcho "Trashing: $FILE"
 				gvfs-trash "$FILE"
@@ -159,6 +202,7 @@ do
 				
 				#mv "$DEST/$filename.${DEST_EXT}" "$DEST/$filename.$DEST_EXT"
 				#mv "$DEST/$filename.${DEST_EXT}" "$SRC/$filename.$DEST_EXT"
+				AddRecord "$FILE" $SizeChange  $Quality
 			fi
 
 		else
