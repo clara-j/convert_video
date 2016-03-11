@@ -14,7 +14,7 @@ source /home/files/Dropbox/Automator/bash.commands
 #    slow
 #    slower
 #    veryslow
-#    placebo
+#    placebo 
 
 LogAndEcho () {
 
@@ -117,7 +117,7 @@ OIFS="$IFS"
 IFS=$'\n'
 #echo "find $SRC -maxdepth 0 -iregex '.*\(mkv\|mp4\|avi\|mov\)'"
 #for FILE in `find "$SRC" -maxdepth 4 -mtime +1 -size +300M -iregex '.*\(mkv\|mp4\|avi\|mov\)'`
-for FILE in `find "$SRC" -maxdepth 4  -size +300M -iregex '.*\(mkv\|mp4\|avi\|mov\)'`
+for FILE in `find "$SRC" -maxdepth 4  -size +100M -iregex '.*\(mkv\|mp4\|avi\|mov\|m4v\)'`
 do
         filename=$(basename "$FILE")
         extension=${filename##*.}
@@ -125,7 +125,7 @@ do
 	FILE_DIR=$(dirname "$FILE")
 
 
-		Is265=`avprobe "$FILE" 3>&1  2>&3|grep HEVC |wc -l`
+		Is265=`avprobe "$FILE" 3>&1  2>&3|grep 'HEVC\|hev1\|265' |wc -l`
 		
 			LogAndEcho ""
 			LogAndEcho "``"
@@ -139,14 +139,14 @@ do
 		elif  [ "0" == "$Is265" ] ; then
 			
 			
-			OriginalLength=`avconv -i "$FILE" 2>&1 | grep 'Duration' | awk '{print $2}' | sed s/,//`
+			OriginalLength=`avconv -i "$FILE" 2>&1 | grep 'Duration' | awk '{print $2}' | cut -f1 -d'.'`
 			OriginalSize=`du -h "$FILE" |cut -f1`
 			OriginalSizeK=`du "$FILE" |cut -f1`
 			LogAndEcho "Original File Size: $OriginalSize"
 			LogAndEcho "Original File Length: $OriginalLength"
 
 			StartTime=`date +%s`
-			ionice -c 3 nice -10 $HANDBRAKE_CLI -i "$FILE" -o "$DEST/$filename.${DEST_EXT}" -e x265 --encoder-preset $Preset -q $Quality -a "1,2,3,4,5,6" -E copy --custom-anamorphic --keep-display-aspect -O --markers -s "1,2,3,4,5,6"
+			ionice -c 3 nice -10 $HANDBRAKE_CLI -i "$FILE" -o "$DEST/$filename.${DEST_EXT}" -e x265 --encoder-preset $Preset -q $Quality -a "1,2,3,4,5,6" -E copy --audio-fallback ffac3 --custom-anamorphic --keep-display-aspect -O --markers -s "1,2,3,4,5,6"
 			#echo "asdfasfjgaskjfda" > "$DEST/$filename.${DEST_EXT}"
 			eCode="$?"
 			
@@ -165,7 +165,7 @@ do
 			if [ -e "$DEST/$filename.${DEST_EXT}" ]; then
 				NewSize=`du -h "$DEST/$filename.${DEST_EXT}" |cut -f1`
 				NewSizeK=`du "$DEST/$filename.${DEST_EXT}" |cut -f1`
-				NewLength=`avconv -i "$DEST/$filename.${DEST_EXT}" 2>&1 | grep 'Duration' | awk '{print $2}' | sed s/,//`
+				NewLength=`avconv -i "$DEST/$filename.${DEST_EXT}" 2>&1 | grep 'Duration' | awk '{print $2}' | cut -f1 -d'.'`
 			else
 				NewSize=0
 				NewSizeK=0
@@ -175,6 +175,12 @@ do
 			LogAndEcho "Encoding took: `ShowTime $RunTime`"
 			LogAndEcho "Encoded File Size: $NewSize ($SizeChange)"
 			MaxSize=$(($OriginalSizeK * 8 / 10))
+			NewLengthSeconds=`echo "$NewLength" | awk -F: '{ print ($1 * 3600) + ($2 * 60) + $3 }'`
+			OriginalLengthSeconds=`echo "$OriginalLength" | awk -F: '{ print ($1 * 3600) + ($2 * 60) + $3 }'`
+			NewLengthSeconds=$(expr $NewLengthSeconds - `echo $NewLengthSeconds |tail -c 3`)
+			OriginalLengthSeconds=$(expr $OriginalLengthSeconds - `echo $OriginalLengthSeconds |tail -c 3`)
+
+			LogAndEcho "New: $NewLength NewSec: $NewLengthSeconds Orig: $OriginalLength OrigSec: $OriginalLengthSeconds"
 
 			if [[ $NewSizeK -eq 0 ]]; then
 				LogAndEcho "File not created"
@@ -182,8 +188,9 @@ do
 				AddRecord "$FILE" -2  $Quality
                                 push "Convert" "File not created"
 
-			elif [[ "$NewLength" = "$OriginalLength"  ]]; then
-				LogAndEcho "Length Does Not Match: $NewLength"
+			elif [ "$NewLengthSeconds" != "$OriginalLengthSeconds"  ]; then
+				LogAndEcho "Length Does Not Match: *$NewLength* != *$OriginalLength*"
+				LogAndEcho "Length Does Not Match: *$NewLengthSeconds"* != *$OriginalLengthSeconds"*"
 				AddRecord "$FILE" -1  $Quality
 				push "Convert" "Wrong Length: $NewLength != $OriginalLength"
 
@@ -192,16 +199,20 @@ do
 				#rm "$DEST/$filename.${DEST_EXT}"
 				AddRecord "$FILE" $SizeChange  $Quality
 			else
+				FolderDate=`date -R -r "$FILE_DIR"`
+				touch -d "$(date -R -r "$FILE")" "$DEST/$filename.${DEST_EXT}"
 				LogAndEcho "Trashing: $FILE"
 				gvfs-trash "$FILE"
 				LogAndEcho "Moving To: ${FILE_DIR}"
 				mv "$DEST/$filename.${DEST_EXT}" "${FILE_DIR}"
-
+				
+				LogAndEcho "$FolderDate $FILE_DIR"
 				push "Convert" "Done Reduced By: $SizeChange" -2
 
 				
 				#mv "$DEST/$filename.${DEST_EXT}" "$DEST/$filename.$DEST_EXT"
 				#mv "$DEST/$filename.${DEST_EXT}" "$SRC/$filename.$DEST_EXT"
+				touch -d "$FolderDate" "$FILE_DIR" >> std.txt
 				AddRecord "$FILE" $SizeChange  $Quality
 			fi
 
